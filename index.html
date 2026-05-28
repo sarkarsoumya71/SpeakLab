@@ -227,6 +227,7 @@ input,textarea{font-family:var(--font);outline:none}
         <span class="pb-t" id="pbDur">0:00</span>
       </div>
       <div class="vid-ctrls" id="vidCtrls">
+        <button class="vc-btn" id="vidToggle" title="Toggle camera">Camera On</button>
         <button class="vc-btn" id="flipBtn" title="Flip video">Flip</button>
         <label class="vc-lbl">Brightness
           <input type="range" class="vc-range" id="brightRange" min="50" max="150" value="100">
@@ -320,6 +321,7 @@ var S = {
   recStart: 0, timerInt: null, blob: null, transcript: '',
   chatHistory: [], sessionId: null, sidebarOpen: false,
   dirHandle: null, flipped: false, brightness: 100, contrast: 100,
+  videoOn: true,
 };
 var K = { groq:'', gemini:'', model:'gemini-2.5-flash' };
 var $ = function(id){ return document.getElementById(id); };
@@ -359,6 +361,7 @@ function bindAll(){
   $('closeLib').addEventListener('click',function(){ $('libMo').classList.remove('open'); });
   $('folderPick').addEventListener('click',pickFolder);
   $('flipBtn').addEventListener('click',toggleFlip);
+  $('vidToggle').addEventListener('click',toggleVideo);
   $('copyTrBtn').addEventListener('click',copyTranscript);
   $('brightRange').addEventListener('input',updateVideoFilter);
   $('contrastRange').addEventListener('input',updateVideoFilter);
@@ -488,6 +491,23 @@ function toggleFlip(){
   $('videoEl').classList.toggle('flipped',S.flipped);
   $('flipBtn').classList.toggle('on',S.flipped);
 }
+function toggleVideo(){
+  S.videoOn=!S.videoOn;
+  $('vidToggle').textContent=S.videoOn?'Camera On':'Camera Off';
+  $('vidToggle').classList.toggle('on',!S.videoOn);
+  // If currently recording, toggle video tracks
+  if(S.micStream){
+    S.micStream.getVideoTracks().forEach(function(t){ t.enabled=S.videoOn; });
+    if(!S.videoOn){
+      $('videoEl').style.visibility='hidden';
+      $('vidPh').style.display='';
+      $('vidPh').innerHTML='<svg><use href="#i-mic"/></svg>Audio only — camera off';
+    } else {
+      $('videoEl').style.visibility='visible';
+      $('vidPh').style.display='none';
+    }
+  }
+}
 function updateVideoFilter(){
   S.brightness=$('brightRange').value;
   S.contrast=$('contrastRange').value;
@@ -537,19 +557,35 @@ async function startRec(){
       console.log('Folder pick skipped, using browser download fallback');
     }
   }
+  var mediaConstraints = S.videoOn
+    ? { video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}}, audio:true }
+    : { audio:true };
   try{
-    S.micStream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},
-      audio:true
-    });
+    S.micStream=await navigator.mediaDevices.getUserMedia(mediaConstraints);
   }catch(e){ alert('Camera/mic access denied.'); return; }
 
-  var v=$('videoEl'); v.srcObject=S.micStream; v.muted=true; v.play();
-  $('vidPh').style.display='none'; $('pbBar').classList.remove('show');
+  var v=$('videoEl');
+  if(S.videoOn){
+    v.srcObject=S.micStream; v.muted=true; v.play();
+    v.style.visibility='visible';
+    $('vidPh').style.display='none';
+  } else {
+    v.srcObject=S.micStream; v.muted=true;
+    v.style.visibility='hidden';
+    $('vidPh').style.display='';
+    $('vidPh').innerHTML='<svg><use href="#i-mic"/></svg>Recording audio only';
+  }
+  $('pbBar').classList.remove('show');
 
   S.chunks=[];
-  var mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus'
-    :MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+  var mt;
+  if(S.videoOn && S.micStream.getVideoTracks().length > 0){
+    mt=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus'
+      :MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+  } else {
+    mt=MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')?'audio/ogg;codecs=opus'
+      :MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';
+  }
   S.mediaRecorder=new MediaRecorder(S.micStream,{mimeType:mt});
   S.mediaRecorder.ondataavailable=function(e){ if(e.data.size>0) S.chunks.push(e.data); };
   S.mediaRecorder.onstop=onRecStop;
@@ -589,8 +625,12 @@ function onRecStop(){
   }
   var now=new Date(); S.sessionId=now.getTime().toString();
   var name=fmtSession(now); $('sessionTag').textContent=name;
-  var fileName=fmtFileName(now)+'.webm';
-  var v=$('videoEl'); v.srcObject=null; v.muted=false; v.src=URL.createObjectURL(blob); v.load();
+  var ext=S.mediaRecorder.mimeType.indexOf('video')!==-1?'webm'
+    :S.mediaRecorder.mimeType.indexOf('ogg')!==-1?'ogg':'webm';
+  var fileName=fmtFileName(now)+'.'+ext;
+  var v=$('videoEl'); v.srcObject=null; v.muted=false; v.src=URL.createObjectURL(blob);
+  v.style.visibility='visible'; v.load();
+  $('vidPh').style.display='none';
   $('pbBar').classList.add('show'); $('anBtn').disabled=false;
 
   // Save video to selected folder (or fallback to browser download)

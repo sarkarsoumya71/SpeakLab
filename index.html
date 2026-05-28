@@ -66,6 +66,14 @@ input,textarea{font-family:var(--font);outline:none}
 .pb-btn:hover{color:var(--t1);border-color:var(--border2)}
 
 /* Controls */
+.vid-ctrls{display:flex;align-items:center;gap:10px;padding:6px 14px;border-top:1px solid rgba(255,255,255,0.04);flex-shrink:0;background:rgba(255,255,255,0.01)}
+.vc-btn{font-size:10px;color:var(--t3);background:transparent;border:1px solid var(--border);border-radius:5px;padding:3px 10px;cursor:pointer;font-family:var(--font);font-weight:500;transition:all 140ms var(--ease)}
+.vc-btn:hover{color:var(--t2);border-color:var(--border2)}
+.vc-btn.on{color:var(--gold);border-color:var(--gold-dim)}
+.vc-lbl{font-size:9px;color:var(--t4);display:flex;align-items:center;gap:5px}
+.vc-range{width:70px;height:3px;accent-color:var(--gold-dim);cursor:pointer}
+.vid-box video.flipped{transform:scaleX(-1)}
+
 .ctrl-bar{display:flex;align-items:center;justify-content:center;gap:6px;padding:12px 14px;border-top:1px solid rgba(255,255,255,0.04);flex-shrink:0}
 .ctrl{height:34px;padding:0 18px;border-radius:6px;font-size:11px;font-weight:600;display:flex;align-items:center;gap:6px;transition:all 150ms var(--ease);letter-spacing:0.3px;text-transform:uppercase}
 .ctrl-rec{background:var(--bg);border:1px solid var(--red);color:var(--red)}
@@ -218,6 +226,15 @@ input,textarea{font-family:var(--font);outline:none}
         <div class="pb-track" id="pbTrack"><div class="pb-fill" id="pbFill"></div></div>
         <span class="pb-t" id="pbDur">0:00</span>
       </div>
+      <div class="vid-ctrls" id="vidCtrls">
+        <button class="vc-btn" id="flipBtn" title="Flip video">Flip</button>
+        <label class="vc-lbl">Brightness
+          <input type="range" class="vc-range" id="brightRange" min="50" max="150" value="100">
+        </label>
+        <label class="vc-lbl">Contrast
+          <input type="range" class="vc-range" id="contrastRange" min="50" max="150" value="100">
+        </label>
+      </div>
       <div class="ctrl-bar">
         <button class="ctrl ctrl-rec" id="recBtn"><span class="c-dot"></span><span id="recLbl">Record</span></button>
         <button class="ctrl ctrl-an" id="anBtn" disabled>Analyze</button>
@@ -298,9 +315,10 @@ input,textarea{font-family:var(--font);outline:none}
 /* ══════════════════════════════════════════════════════════════════════ */
 var S = {
   recording: false, mediaRecorder: null, chunks: [], micStream: null,
+  audioRecorder: null, audioChunks: [], audioBlob: null,
   recStart: 0, timerInt: null, blob: null, transcript: '',
   chatHistory: [], sessionId: null, sidebarOpen: false,
-  dirHandle: null,
+  dirHandle: null, flipped: false, brightness: 100, contrast: 100,
 };
 var K = { groq:'', gemini:'', model:'gemini-2.5-flash' };
 var $ = function(id){ return document.getElementById(id); };
@@ -339,6 +357,9 @@ function bindAll(){
   $('cancelCfg').addEventListener('click',function(){ $('settingsMo').classList.remove('open'); });
   $('closeLib').addEventListener('click',function(){ $('libMo').classList.remove('open'); });
   $('folderPick').addEventListener('click',pickFolder);
+  $('flipBtn').addEventListener('click',toggleFlip);
+  $('brightRange').addEventListener('input',updateVideoFilter);
+  $('contrastRange').addEventListener('input',updateVideoFilter);
   // Divider drag
   setupDivider();
   // Keyboard
@@ -452,6 +473,18 @@ async function loadFileFromFolder(fileName){
   }
 }
 
+/* ── Video Controls ── */
+function toggleFlip(){
+  S.flipped=!S.flipped;
+  $('videoEl').classList.toggle('flipped',S.flipped);
+  $('flipBtn').classList.toggle('on',S.flipped);
+}
+function updateVideoFilter(){
+  S.brightness=$('brightRange').value;
+  S.contrast=$('contrastRange').value;
+  $('videoEl').style.filter='brightness('+S.brightness+'%) contrast('+S.contrast+'%)';
+}
+
 /* ── Divider ── */
 function setupDivider(){
   var div=$('sbDivider'), top=$('sbTop'), bot=$('sbBottom');
@@ -513,6 +546,15 @@ async function startRec(){
   S.mediaRecorder.onstop=onRecStop;
   S.mediaRecorder.start(1000);
 
+  // Separate audio-only recording for transcription (much smaller file)
+  S.audioChunks=[];
+  var audioStream=new MediaStream(S.micStream.getAudioTracks());
+  var audioMime=MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')?'audio/ogg;codecs=opus'
+    :MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';
+  S.audioRecorder=new MediaRecorder(audioStream,{mimeType:audioMime});
+  S.audioRecorder.ondataavailable=function(e){ if(e.data.size>0) S.audioChunks.push(e.data); };
+  S.audioRecorder.start(1000);
+
   S.recording=true; S.recStart=Date.now();
   $('recBtn').classList.add('on'); $('recLbl').textContent='Stop';
   $('recInd').classList.add('show'); $('anBtn').disabled=true;
@@ -521,6 +563,7 @@ async function startRec(){
 
 function stopRec(){
   S.recording=false; clearInterval(S.timerInt);
+  if(S.audioRecorder&&S.audioRecorder.state==='recording') S.audioRecorder.stop();
   if(S.mediaRecorder&&S.mediaRecorder.state==='recording') S.mediaRecorder.stop();
   if(S.micStream){ S.micStream.getTracks().forEach(function(t){t.stop();}); S.micStream=null; }
   $('recBtn').classList.remove('on'); $('recLbl').textContent='Record'; $('recInd').classList.remove('show');
@@ -529,6 +572,12 @@ function stopRec(){
 function onRecStop(){
   var blob=new Blob(S.chunks,{type:S.mediaRecorder.mimeType});
   S.blob=blob; S.transcript=''; S.chatHistory=[];
+  // Save audio-only blob for transcription
+  if(S.audioChunks.length){
+    S.audioBlob=new Blob(S.audioChunks,{type:S.audioRecorder.mimeType});
+  } else {
+    S.audioBlob=blob; // fallback to video blob
+  }
   var now=new Date(); S.sessionId=now.getTime().toString();
   var name=fmtSession(now); $('sessionTag').textContent=name;
   var fileName=fmtFileName(now)+'.webm';
@@ -568,13 +617,15 @@ function tickPB(){
 /* ── Analyze ── */
 async function analyze(){
   if(!S.blob||!K.groq) return;
+  var audioToSend=S.audioBlob||S.blob;
   $('anBtn').disabled=true; $('anBtn').textContent='Transcribing...';
   if(!S.sidebarOpen) toggleSB();
-  $('trBody').innerHTML='<div class="tr-loading"><div class="spin"></div>Sending to Groq Whisper...</div>';
+  $('trBody').innerHTML='<div class="tr-loading"><div class="spin"></div>Sending audio to Groq Whisper...</div>';
 
   try{
     var fd=new FormData();
-    fd.append('file',S.blob,'recording.webm');
+    var ext=audioToSend.type.indexOf('ogg')!==-1?'ogg':'webm';
+    fd.append('file',audioToSend,'recording.'+ext);
     fd.append('model','whisper-large-v3');
     fd.append('response_format','verbose_json');
     fd.append('language','en');

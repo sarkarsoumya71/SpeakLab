@@ -249,6 +249,7 @@ input,textarea{font-family:var(--font);outline:none}
     <div class="sb-top" id="sbTop">
       <div class="panel-hdr">
         <div class="panel-title"><svg><use href="#i-file"/></svg> Transcript</div>
+        <button class="vc-btn" id="copyTrBtn" title="Copy transcript">Copy</button>
       </div>
       <div class="tr-body" id="trBody">
         <div class="tr-empty">Record a clip and click Analyze.</div>
@@ -358,6 +359,7 @@ function bindAll(){
   $('closeLib').addEventListener('click',function(){ $('libMo').classList.remove('open'); });
   $('folderPick').addEventListener('click',pickFolder);
   $('flipBtn').addEventListener('click',toggleFlip);
+  $('copyTrBtn').addEventListener('click',copyTranscript);
   $('brightRange').addEventListener('input',updateVideoFilter);
   $('contrastRange').addEventListener('input',updateVideoFilter);
   // Divider drag
@@ -474,6 +476,13 @@ async function loadFileFromFolder(fileName){
 }
 
 /* ── Video Controls ── */
+function copyTranscript(){
+  if(!S.transcript){ return; }
+  navigator.clipboard.writeText(S.transcript).then(function(){
+    $('copyTrBtn').textContent='Copied';
+    setTimeout(function(){ $('copyTrBtn').textContent='Copy'; },1500);
+  });
+}
 function toggleFlip(){
   S.flipped=!S.flipped;
   $('videoEl').classList.toggle('flipped',S.flipped);

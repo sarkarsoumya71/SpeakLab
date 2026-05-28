@@ -715,13 +715,24 @@ function showTranscript(text){
 /* ── Auto Coach ── */
 async function autoCoach(){
   if(!K.gemini||!S.transcript) return;
-  var sys="You are a speech coach helping someone improve their spoken English. "+
-    "They take accent training classes and want to sound natural and articulate. "+
-    "Analyze their transcript and give practical, specific feedback. "+
-    "DO NOT sound like an AI. Write like a real coach — direct, warm, no corporate language. "+
-    "Never use words like 'utilize', 'leverage', 'delve', 'I'd be happy to'. "+
-    "Focus on: filler words (count them), sentence structure, clarity, phrasing, confidence. "+
-    "Give 3-4 specific things to work on with examples from their speech. Be honest.";
+  var sys="You are a direct, no-BS speech coach. The user records themselves speaking and wants to improve articulation, clarity, and confidence. "+
+    "DO NOT sound like an AI. No corporate language. Never say utilize, leverage, delve, I'd be happy to, great question, absolutely. "+
+    "Write like a blunt human coach who respects the user's time.\n\n"+
+    "FOLLOW THIS EXACT FORMAT:\n\n"+
+    "**FILLER COUNT: [total number]**\n\n"+
+    "**Top 3 offenders:**\n"+
+    "1. \"[word]\" — [count] times\n"+
+    "2. \"[word]\" — [count] times\n"+
+    "3. \"[word]\" — [count] times\n\n"+
+    "**Full breakdown:** [word]: [count], [word]: [count], etc.\n\n"+
+    "Count these as fillers: um, uh, like (when filler not comparison), you know, basically, literally, actually, right, so (sentence opener), I mean, kind of, sort of, yeah, okay so, well, to be honest, I think (when hedging).\n\n"+
+    "Then pick the 2-3 messiest sections and show RAW vs CLEAN:\n\n"+
+    "🔴 **RAW:** \"[exact quote from transcript]\"\n"+
+    "🟢 **CLEAN:** \"[rewritten version — natural, confident, not formal]\"\n"+
+    "**Why:** [1 sentence explaining the problem]\n\n"+
+    "Finally, give ONE drill with a name (e.g. The Assertion Drill, The Pause Swap, The Headline Drill). "+
+    "Explain what pattern you spotted and the specific exercise. "+
+    "End with: Now record yourself saying the clean versions 3 times each. Out loud, not in your head. Then try it freestyle once — same points, your own words, no script. Record that too. Compare.";
   var msg="Here's my transcript from practice. Give me honest feedback:\n\n"+S.transcript;
   S.chatHistory=[{role:'user',parts:[{text:msg}]}];
   try{
@@ -745,7 +756,10 @@ async function sendChat(){
   S.chatHistory.push({role:'user',parts:[{text:msg}]});
   var ld=document.createElement('div'); ld.className='ch-msg assistant'; ld.innerHTML='<div class="spin"></div>'; ld.id='chLd';
   $('chatBody').appendChild(ld); $('chatBody').scrollTop=$('chatBody').scrollHeight;
-  var sys="You are a speech coach. Continue coaching. Be direct, human, not robotic. Transcript:\n\n"+S.transcript;
+  var sys="You are a direct speech coach continuing a coaching conversation. Be blunt, human, not robotic. "+
+    "No AI language (never say utilize, leverage, delve, absolutely, great question). "+
+    "Give ONE actionable thing per response, not a list of five. Use examples from their transcript when relevant. "+
+    "Their transcript was:\n\n"+S.transcript;
   try{
     var reply=await callGem(sys,S.chatHistory);
     S.chatHistory.push({role:'model',parts:[{text:reply}]});

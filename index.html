@@ -358,6 +358,10 @@ function toggleSB(){
 
 /* ── Folder Management (File System Access API) ── */
 async function pickFolder(){
+  if(!window.showDirectoryPicker){
+    $('folderPath').textContent='Not supported in this browser — videos save to Downloads';
+    return;
+  }
   try{
     var handle=await window.showDirectoryPicker({mode:'readwrite',startIn:'downloads'});
     S.dirHandle=handle;
@@ -369,6 +373,7 @@ async function pickFolder(){
 }
 
 async function restoreDirHandle(){
+  if(!window.showDirectoryPicker){ updateFolderDisplay(); return; }
   try{
     var db=await openDB();
     var tx=db.transaction('s','readonly');
@@ -400,8 +405,14 @@ function updateFolderDisplay(){
     $('folderPath').textContent=S.dirHandle.name;
     $('folderPath').classList.add('active');
     $('folderPick').textContent='Change';
+  } else if(!window.showDirectoryPicker){
+    $('folderPath').textContent='Videos save to your Downloads folder';
+    $('folderPath').classList.remove('active');
+    $('folderPick').textContent='Not supported';
+    $('folderPick').disabled=true;
+    $('folderPick').style.opacity='0.3';
   } else {
-    $('folderPath').textContent='No folder selected';
+    $('folderPath').textContent='No folder selected — videos will download to browser';
     $('folderPath').classList.remove('active');
     $('folderPick').textContent='Choose folder';
   }
@@ -472,16 +483,16 @@ async function toggleRec(){ S.recording ? stopRec() : await startRec(); }
 
 async function startRec(){
   if(!K.groq){ openCfg(); return; }
-  if(!S.dirHandle){
-    // Ask user to pick a folder first
+  // Try folder picker if no folder selected, but don't block recording if it fails
+  if(!S.dirHandle && window.showDirectoryPicker){
     try{
       var handle=await window.showDirectoryPicker({mode:'readwrite',startIn:'downloads'});
       S.dirHandle=handle;
       await storeDirHandle(handle);
       updateFolderDisplay();
     }catch(err){
-      if(err.name!=='AbortError') console.error(err);
-      return; // Can't record without a folder
+      // User cancelled or API blocked — continue without folder, will use browser download
+      console.log('Folder pick skipped, using browser download fallback');
     }
   }
   try{
